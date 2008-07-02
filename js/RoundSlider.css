@@ -1,0 +1,34 @@
+	#circle
+	{
+		position: relative;
+		left: 40px;
+		top: -15px;
+		margin: 0;
+		padding: 0;
+	}
+	#slider
+	{
+		position: absolute;
+		top: 10px;
+		left: 30px;
+		width: 100px;
+		height: 100px;
+		background: url(bigcircle.gif) no-repeat;
+		display: none;
+		padding: 0;
+		margin: 0;
+	}
+	#indicator
+	{
+		position: absolute;
+		top: 7px;
+		left: 74px;
+		width: 21px;
+		height: 21px;
+		background: url(select.gif) no-repeat;
+		cursor: move;
+		overflow: hidden;
+		display: none;
+		padding: 0;
+		margin: 0;
+	}
