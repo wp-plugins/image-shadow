@@ -3,7 +3,7 @@
 Plugin Name: Image Shadow
 Plugin URI: http://rmarsh.com/plugins/image-shadow/
 Description: Adds realistic, soft drop-shadows and, optionally, frames to the jpg images in your content.
-Version: 1.0.0b2
+Version: 1.1.0
 Author: Rob Marsh, SJ
 Author URI: http://rmarsh.com
 */
@@ -99,6 +99,46 @@ class ImageShadow {
 		}
 	}
 	
+	function drawshadowalpha(&$image, $distance, $rectX1, $rectY1, $rectX2, $rectY2, $shadowR, $shadowG, $shadowB, $opacity) {
+		imagealphablending($image, false);
+		imagesavealpha($image, true);
+		
+		$potentialOverlap = ($distance * 2) * ($distance * 2);
+		
+		$shadowColor = imagecolorallocatealpha($image, $shadowR, $shadowG, $shadowB, 0);
+		imageFilledRectangle($image, $rectX1, $rectY1, $rectX2, $rectY2, $shadowColor);
+
+		$imageWidth = imagesx($image);
+		$imageHeight = imagesy($image);
+
+
+		for ( $pointX = $rectX1 - $distance; $pointX < $imageWidth; $pointX++ ) {
+			for ( $pointY = $rectY1 - $distance; $pointY < $imageHeight; $pointY++ ) {
+
+			if ( $pointX > $rectX1 + $distance && $pointX < $rectX2 - $distance && $pointY > $rectY1 + $distance && $pointY < $rectY2 - $distance ) {
+				$pointY = $rectY2 - $distance;
+			}
+
+			$boxX1 = $pointX - $distance;
+			$boxY1 = $pointY - $distance;
+			$boxX2 = $pointX + $distance;
+			$boxY2 = $pointY + $distance;
+
+			$xOverlap = max(0, min($boxX2, $rectX2) - max($boxX1, $rectX1));
+			$yOverlap = max(0, min($boxY2, $rectY2) - max($boxY1, $rectY1));
+
+			$totalOverlap = $xOverlap * $yOverlap;
+			$shadowPcnt = $totalOverlap / $potentialOverlap;
+			$backPcnt = 1.0 - $shadowPcnt*$opacity;
+
+			$newO = $backPcnt * 127;
+
+			$newcol = imagecolorallocatealpha($image, $shadowR, $shadowG, $shadowB, $newO);
+			imagesetpixel($image, $pointX, $pointY, $newcol);
+			}
+		}
+	}
+	
 	// 3n1gm4 [at] gmail [dot] com -- http://www.php.net/file_get_contents
 	function curl_get_contents($URL) {
 		$c = curl_init();
@@ -140,6 +180,14 @@ class ImageShadow {
 	    return $in;
 	}
 	
+	function write_image_file(&$image, $filename) {
+		if ($this->options['background_color'] === '') {
+			imagepng($image, $filename);
+		} else {
+			imagejpeg($image, $filename, 100);
+		}
+	}
+	
 	function render_effects ($src) {
 				
 		// see if it is already cached...
@@ -173,10 +221,10 @@ class ImageShadow {
 			$src_data = @file_get_contents($src);
 			break;
 		case 'curl':
-			$src_data = curl_get_contents($src);
+			$src_data = $this->curl_get_contents($src);
 			break;
 		case 'sock':
-			$src_data = sock_get_contents($src);
+			$src_data = $this->sock_get_contents($src);
 			break;
 		default:
 			$src_data = file_get_contents($src);
@@ -195,11 +243,15 @@ class ImageShadow {
 		
 		// draw shadow
 		$shadow_rgb = $this->hex_to_rgb($shadow_color);
-		$background_rgb = $this->hex_to_rgb($background_color);
-		foreach($background_rgb as $rgb => $value) {
-			$shadow_rgb[$rgb] = $opacity*$shadow_rgb[$rgb] + (1-$opacity)*$value;
+		if ($background_color === '') {
+			$this->drawshadowalpha($image, $blur_radius, $origin_x, $origin_y, $origin_x+$original_width+2*$frame_width, $origin_y+$original_height+2*$frame_width, $shadow_rgb['red'], $shadow_rgb['green'], $shadow_rgb['blue'], $opacity);
+		} else {
+			$background_rgb = $this->hex_to_rgb($background_color);
+			foreach($background_rgb as $rgb => $value) {
+				$shadow_rgb[$rgb] = $opacity*$shadow_rgb[$rgb] + (1-$opacity)*$value;
+			}
+			$this->drawshadow($image, $blur_radius, $origin_x, $origin_y, $origin_x+$original_width+2*$frame_width, $origin_y+$original_height+2*$frame_width, $shadow_rgb['red'], $shadow_rgb['green'], $shadow_rgb['blue'], $background_rgb['red'], $background_rgb['green'], $background_rgb['blue']);
 		}
-		$this->drawshadow($image, $blur_radius, $origin_x, $origin_y, $origin_x+$original_width+2*$frame_width, $origin_y+$original_height+2*$frame_width, $shadow_rgb['red'], $shadow_rgb['green'], $shadow_rgb['blue'], $background_rgb['red'], $background_rgb['green'], $background_rgb['blue']);
 
 		// draw frame
 		if ($frame_width > 0) {
@@ -217,16 +269,16 @@ class ImageShadow {
 			$new_height = $original_width * ($height / $width);
 			$newimage = imagecreatetruecolor($original_width, $new_height);
 			imagecopyresampled($newimage, $image, 0, 0, 0, 0, $original_width, $new_height, $width, $height);
-			imagejpeg($newimage, $cache_filename, 100);
+			$this->write_image_file($newimage, $cache_filename);
 			imagedestroy($newimage);
 		} else if ($this->options['preserve'] === 'height') {
 			$new_width = $original_height * ($width / $height);
 			$newimage = imagecreatetruecolor($new_width, $original_height);
 			imagecopyresampled($newimage, $image, 0, 0, 0, 0, $new_width, $original_height, $width, $height);	
-			imagejpeg($newimage, $cache_filename, 100);
+			$this->write_image_file($newimage, $cache_filename);
 			imagedestroy($newimage);
 		} else {
-			imagejpeg($image, $cache_filename, 100);	
+			$this->write_image_file($image, $cache_filename);
 		}
 		
 		// tidy up
@@ -240,13 +292,15 @@ class ImageShadow {
 		}
 	}	
 	
+	function filter_callback($matches) {
+		if (($this->options['selective']==='true') && (false===strpos($matches[0], $this->options['shadow_class']))) 
+			return $matches[0];
+		else
+			return str_replace($matches[1], $this->render_effects($matches[1]), $matches[0]);
+	}
+	
 	function filter($content) {
-		preg_match_all('#<img.+?src\s*=\s*["|\'](.+?)["|\'].+?>#isu', $content, $matches);
-		foreach($matches[1] as $src) {
-			$newsrc[] = $this->render_effects($src);
-		}
- 		$content = str_replace($matches[1], $newsrc, $content);
- 		return $content;
+		return preg_replace_callback('#<img.+?src\s*=\s*["|\'](.+?)["|\'].+?>#isu', array($this, 'filter_callback'), $content);
 	}
 	
 	function activate() {
@@ -264,6 +318,8 @@ class ImageShadow {
 		if (!isset($options['frame_color'])) $options['frame_color'] = '#fff';
 		if (!isset($options['frame_width'])) $options['frame_width'] = 0;
 		if (!isset($options['preserve'])) $options['preserve'] = 'false';
+		if (!isset($options['selective'])) $options['selective'] = 'false';
+		if (!isset($options['shadow_class'])) $options['shadow_class'] = '';
 		// try to create the cache directory
 		if (!is_dir($options['cache_directory'])) {
 			if (!@mkdir($options['cache_directory'], 0777)) $options['fail_mkdir'] = true;
@@ -332,6 +388,8 @@ class ImageShadow {
 			if(isset($_POST['frame_width'])) $options['frame_width'] = intval($_POST['frame_width']);
 			if ($options['frame_width'] < 0) $options['frame_width'] = 0;
 			if(isset($_POST['preserve'])) $options['preserve'] = $_POST['preserve'];
+			if(isset($_POST['selective'])) $options['selective'] = $_POST['selective'];
+			if(isset($_POST['shadow_class'])) $options['shadow_class'] = $_POST['shadow_class'];
 			update_option(IMAGE_SHADOW_OPTIONS, $options);
 			global $ImageShadow; $ImageShadow->clear_cache();
 			echo '<div class="updated fade"><p>' . __('Settings saved', 'image_shadow') . '</p></div>';
@@ -394,6 +452,16 @@ class ImageShadow {
 						<option <?php if($options['preserve'] == 'width') { echo 'selected="selected"'; } ?> value="width">Shrink new image to fit in original width</option>
 						<option <?php if($options['preserve'] == 'height') { echo 'selected="selected"'; } ?> value="height">Shrink new image to fit in original height</option>
 						</select>
+					</td> 
+				</tr>
+				<tr valign="top">
+					<th scope="row"><?php _e('Only modify images with class="img-shadow"?', 'image_shadow') ?></th>
+					<td>
+						<select name="selective" id="selective">
+						<option <?php if($options['selective'] == 'false') { echo 'selected="selected"'; } ?> value="false">No</option>
+						<option <?php if($options['selective'] == 'true') { echo 'selected="selected"'; } ?> value="true">Yes</option>
+						</select>
+						class = <input name="shadow_class" type="text" id="shadow_class" value="<?php echo $options['shadow_class']; ?>" size="20" />
 					</td> 
 				</tr>
 			</table>
