@@ -3,7 +3,7 @@
 Plugin Name: Image Shadow
 Plugin URI: http://rmarsh.com/plugins/image-shadow/
 Description: Adds realistic, soft drop-shadows and, optionally, frames to the jpg images in your content.
-Version: 1.1.0
+Version: 1.1.1
 Author: Rob Marsh, SJ
 Author URI: http://rmarsh.com
 */
@@ -189,6 +189,8 @@ class ImageShadow {
 	}
 	
 	function render_effects ($src) {
+		// only work on jpeg images
+		if (!preg_match('/\.(jpeg|jpg|jpe)$/i', $src)) return $src;
 				
 		// see if it is already cached...
 		ksort($this->options);
@@ -208,14 +210,6 @@ class ImageShadow {
 		$frame_width = $this->options['frame_width'];
 		$preserve = $this->options['preserve'];
 
-		$origin_x = ($left > 0) ? max($blur_radius, $left) : $blur_radius;
-		$origin_y = ($top > 0) ? max($blur_radius, $top) : $blur_radius;
-		
-		$overhang_x = ($left > 0) ? $blur_radius : max($blur_radius, abs($left));
-		$overhang_y = ($top > 0) ? $blur_radius : max($blur_radius, abs($top));
-
-		// only work on jpeg images
-		if (!preg_match('/\.(jpeg|jpg|jpe)$/i', $src)) return $src;
 		switch ($this->options['get_contents']) {
 		case 'file':
 			$src_data = @file_get_contents($src);
@@ -232,7 +226,12 @@ class ImageShadow {
 		if (!$src_data) return $src;
 		$original_image = imagecreatefromstring($src_data);
 		unset($src_data);
-	
+
+		$origin_x = ($left > 0) ? max($blur_radius, $left) : $blur_radius;
+		$origin_y = ($top > 0) ? max($blur_radius, $top) : $blur_radius;
+
+		$overhang_x = ($left > 0) ? $blur_radius : max($blur_radius, abs($left));
+		$overhang_y = ($top > 0) ? $blur_radius : max($blur_radius, abs($top));
 		// calculate the dimensions of the final image ...
 		$original_width = imagesx($original_image) ;
 		$original_height = imagesy($original_image);
@@ -240,7 +239,7 @@ class ImageShadow {
 		$height = $original_height + $origin_y + $overhang_y + 2*$frame_width;
 		// ... and create it
 		$image = imagecreatetruecolor($width, $height);
-		
+
 		// draw shadow
 		$shadow_rgb = $this->hex_to_rgb($shadow_color);
 		if ($background_color === '') {
@@ -264,7 +263,32 @@ class ImageShadow {
 		// draw image on top
 		imagecopy($image, $original_image, $origin_x-$left+$frame_width, $origin_y-$top+$frame_width, 0, 0, $original_width, $original_height);
 		
-		// if required, resize the final image
+		// if required centre the image in a larger field
+		if ($this->options['centre'] === 'true') {
+			$border_x = $border_y = $this->options['border_width'];
+			if ($border_x < $overhang_x + $origin_x + $frame_width) $border_x = $overhang_x + $origin_x + $frame_width;
+			if ($border_y < $overhang_y + $origin_y + $frame_width) $border_y = $overhang_y + $origin_y + $frame_width;
+			$newimage = imagecreatetruecolor($original_width+2*$border_x, $original_height+2*$border_y);
+			if ($background_color === '') {
+				imagealphablending($newimage, false);
+				imagesavealpha($newimage, true);
+				$newcol = imagecolorallocatealpha($newimage, $shadow_rgb['red'], $shadow_rgb['green'], $shadow_rgb['blue'], 127);
+			} else {
+				$newcol = imagecolorallocate($newimage, $background_rgb['red'], $background_rgb['green'], $background_rgb['blue']);
+			}
+			imagefill($newimage, 0, 0, $newcol);
+			imagecopy($newimage, $image, $border_x-$origin_x+$left-$frame_width, $border_y-$origin_y+$top-$frame_width, 0, 0, $width, $height);
+			imagedestroy($image);
+			$image = imagecreatetruecolor($original_width+2*$border_x, $original_height+2*$border_y);
+			if ($background_color === '') {
+				imagealphablending($image, false);
+				imagesavealpha($image, true);
+			}
+			imagecopy($image, $newimage, 0, 0, 0, 0, $original_width+2*$border_x, $original_height+2*$border_y);
+			imagedestroy($newimage);
+		}
+		
+ 		// if required, resize the final image
 		if ($this->options['preserve'] === 'width') {
 			$new_height = $original_width * ($height / $width);
 			$newimage = imagecreatetruecolor($original_width, $new_height);
@@ -280,7 +304,7 @@ class ImageShadow {
 		} else {
 			$this->write_image_file($image, $cache_filename);
 		}
-		
+ 		
 		// tidy up
 		imagedestroy($image);
 		imagedestroy($original_image);
@@ -320,6 +344,8 @@ class ImageShadow {
 		if (!isset($options['preserve'])) $options['preserve'] = 'false';
 		if (!isset($options['selective'])) $options['selective'] = 'false';
 		if (!isset($options['shadow_class'])) $options['shadow_class'] = '';
+		if (!isset($options['centre'])) $options['centre'] = 'false';
+		if (!isset($options['border_width'])) $options['border_width'] = '';
 		// try to create the cache directory
 		if (!is_dir($options['cache_directory'])) {
 			if (!@mkdir($options['cache_directory'], 0777)) $options['fail_mkdir'] = true;
@@ -390,6 +416,8 @@ class ImageShadow {
 			if(isset($_POST['preserve'])) $options['preserve'] = $_POST['preserve'];
 			if(isset($_POST['selective'])) $options['selective'] = $_POST['selective'];
 			if(isset($_POST['shadow_class'])) $options['shadow_class'] = $_POST['shadow_class'];
+			if(isset($_POST['centre'])) $options['centre'] = $_POST['centre'];
+			if(isset($_POST['border_width'])) $options['border_width'] = $_POST['border_width'];
 			update_option(IMAGE_SHADOW_OPTIONS, $options);
 			global $ImageShadow; $ImageShadow->clear_cache();
 			echo '<div class="updated fade"><p>' . __('Settings saved', 'image_shadow') . '</p></div>';
@@ -462,6 +490,16 @@ class ImageShadow {
 						<option <?php if($options['selective'] == 'true') { echo 'selected="selected"'; } ?> value="true">Yes</option>
 						</select>
 						class = <input name="shadow_class" type="text" id="shadow_class" value="<?php echo $options['shadow_class']; ?>" size="20" />
+					</td> 
+				</tr>
+				<tr valign="top">
+					<th scope="row"><?php _e('Centre shadowed image in it\'s border?', 'centre') ?></th>
+					<td>
+						<select name="centre" id="centre">
+						<option <?php if($options['centre'] == 'false') { echo 'selected="selected"'; } ?> value="false">No</option>
+						<option <?php if($options['centre'] == 'true') { echo 'selected="selected"'; } ?> value="true">Yes</option>
+						</select>
+						border width = <input name="border_width" type="text" id="border_width" value="<?php echo $options['border_width']; ?>" size="3" />
 					</td> 
 				</tr>
 			</table>
